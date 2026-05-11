@@ -1,7 +1,10 @@
+require("dotenv").config();
 const { PrismaClient } = require("@prisma/client");
+const { PrismaNeon } = require("@prisma/adapter-neon");
 const bcrypt = require("bcryptjs");
 
-const prisma = new PrismaClient();
+const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   const email = process.env.ADMIN_EMAIL;
