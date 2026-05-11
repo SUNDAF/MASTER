@@ -6,7 +6,7 @@ async function vercelSetPlan(projectId: string, plan: string) {
   const token = process.env.VERCEL_TOKEN;
   if (!token || !projectId) return { ok: false, error: "VERCEL_TOKEN atau Project ID belum diset" };
 
-  const targets = ["production", "preview", "development"];
+  const targets = ["production", "preview"];
 
   // Get existing env vars
   const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, {
