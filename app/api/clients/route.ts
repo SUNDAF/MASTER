@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const apiKey = crypto.randomBytes(32).toString("hex");
   const client = await prisma.client.create({
-    data: { name: body.name, url: body.url.replace(/\/$/, ""), plan: body.plan ?? "basic", apiKey, notes: body.notes ?? "" },
+    data: { name: body.name, url: body.url.replace(/\/$/, ""), plan: body.plan ?? "basic", apiKey, notes: body.notes ?? "", vercelProjectId: body.vercelProjectId ?? null },
   });
   return NextResponse.json(client);
 }

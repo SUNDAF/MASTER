@@ -9,7 +9,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const body = await req.json();
   const client = await prisma.client.update({
     where: { id },
-    data: { name: body.name, url: body.url?.replace(/\/$/, ""), plan: body.plan, status: body.status, notes: body.notes },
+    data: { name: body.name, url: body.url?.replace(/\/$/, ""), plan: body.plan, status: body.status, notes: body.notes, ...(body.vercelProjectId !== undefined ? { vercelProjectId: body.vercelProjectId || null } : {}) },
   });
   return NextResponse.json(client);
 }

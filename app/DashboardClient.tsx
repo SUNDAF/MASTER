@@ -9,7 +9,8 @@ import {
 
 interface Client {
   id: string; name: string; url: string; plan: string;
-  status: string; apiKey: string; notes?: string | null; createdAt: string;
+  status: string; apiKey: string; notes?: string | null;
+  vercelProjectId?: string | null; createdAt: string;
 }
 
 interface Stats {
@@ -45,13 +46,16 @@ function EditClientModal({ client, onClose, onSave }: {
   onClose: () => void;
   onSave: (data: Partial<Client>) => void;
 }) {
-  const [form, setForm] = useState({ name: client.name, url: client.url, notes: client.notes ?? "", status: client.status });
+  const [form, setForm] = useState({
+    name: client.name, url: client.url, notes: client.notes ?? "",
+    status: client.status, vercelProjectId: client.vercelProjectId ?? "",
+  });
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    await onSave(form);
+    await onSave({ ...form, vercelProjectId: form.vercelProjectId || null });
     setLoading(false);
     onClose();
   }
@@ -82,6 +86,15 @@ function EditClientModal({ client, onClose, onSave }: {
             </select>
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Vercel Project ID
+              <span className="ml-1 text-xs text-gray-400 font-normal">(untuk auto-deploy saat ganti plan)</span>
+            </label>
+            <input value={form.vercelProjectId} onChange={e => setForm(f => ({ ...f, vercelProjectId: e.target.value }))}
+              placeholder="prj_xxxxxxxxxxxxxxxx"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
@@ -109,6 +122,8 @@ function ClientCard({ client, onDelete, onUpdate }: {
   const [loading, setLoading] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planMsg, setPlanMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -183,12 +198,42 @@ function ClientCard({ client, onDelete, onUpdate }: {
         </div>
         <div className="flex items-center gap-2">
           {/* Plan toggle */}
-          <select value={client.plan}
-            onChange={e => onUpdate(client.id, { plan: e.target.value })}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="basic">Basic</option>
-            <option value="pro">Pro</option>
-          </select>
+          <div className="flex items-center gap-1">
+            <select value={client.plan} disabled={planLoading}
+              onChange={async (e) => {
+                const newPlan = e.target.value;
+                setPlanLoading(true);
+                setPlanMsg(null);
+                try {
+                  const res = await fetch(`/api/clients/${client.id}/plan`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ plan: newPlan }),
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    onUpdate(client.id, { plan: newPlan });
+                    setPlanMsg({ ok: true, text: data.vercel?.redeployed ? "✓ Deploy" : "✓ Saved" });
+                  } else {
+                    setPlanMsg({ ok: false, text: "Gagal" });
+                  }
+                } catch {
+                  setPlanMsg({ ok: false, text: "Error" });
+                }
+                setPlanLoading(false);
+                setTimeout(() => setPlanMsg(null), 3000);
+              }}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60">
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+            </select>
+            {planLoading && <RefreshCw size={10} className="animate-spin text-blue-500" />}
+            {planMsg && !planLoading && (
+              <span className={`text-[10px] font-semibold ${planMsg.ok ? "text-green-600" : "text-red-500"}`}>
+                {planMsg.text}
+              </span>
+            )}
+          </div>
 
           {/* API Key */}
           <button onClick={() => setShowKey(v => !v)}
@@ -219,9 +264,18 @@ function ClientCard({ client, onDelete, onUpdate }: {
       </div>
 
       {showKey && (
-        <div className="mt-3 bg-gray-50 rounded-xl p-3">
-          <p className="text-xs text-gray-500 mb-1 font-medium">MASTER_API_KEY untuk {client.name}:</p>
-          <code className="text-xs text-gray-700 break-all">{client.apiKey}</code>
+        <div className="mt-3 bg-gray-50 rounded-xl p-3 space-y-2">
+          <div>
+            <p className="text-xs text-gray-500 mb-1 font-medium">MASTER_API_KEY untuk {client.name}:</p>
+            <code className="text-xs text-gray-700 break-all">{client.apiKey}</code>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 mb-1 font-medium">Vercel Project ID:</p>
+            {client.vercelProjectId
+              ? <code className="text-xs text-green-700 break-all">{client.vercelProjectId}</code>
+              : <span className="text-xs text-amber-600">Belum diset — edit client untuk mengisi</span>
+            }
+          </div>
         </div>
       )}
 
@@ -237,13 +291,17 @@ function ClientCard({ client, onDelete, onUpdate }: {
 }
 
 function AddClientModal({ onClose, onAdd }: { onClose: () => void; onAdd: (c: Client) => void }) {
-  const [form, setForm] = useState({ name: "", url: "", plan: "basic", notes: "" });
+  const [form, setForm] = useState({ name: "", url: "", plan: "basic", notes: "", vercelProjectId: "" });
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const res = await fetch("/api/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const res = await fetch("/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...form, vercelProjectId: form.vercelProjectId || null }),
+    });
     const data = await res.json();
     setLoading(false);
     if (data.id) { onAdd(data); onClose(); }
@@ -271,6 +329,14 @@ function AddClientModal({ onClose, onAdd }: { onClose: () => void; onAdd: (c: Cl
               <option value="basic">Basic</option>
               <option value="pro">Pro</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Vercel Project ID <span className="text-xs text-gray-400 font-normal">(opsional)</span>
+            </label>
+            <input value={form.vercelProjectId} onChange={e => setForm(f => ({ ...f, vercelProjectId: e.target.value }))}
+              placeholder="prj_xxxxxxxxxxxxxxxx"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Catatan (opsional)</label>
