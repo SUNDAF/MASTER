@@ -33,14 +33,25 @@ async function vercelSetPlan(projectId: string, plan: string) {
     if (!createRes.ok) return { ok: false, error: "Gagal buat env var" };
   }
 
-  // Trigger redeploy
+  // Get latest production deployment ID
+  const listDeployRes = await fetch(
+    `https://api.vercel.com/v6/deployments?projectId=${projectId}&limit=1&target=production`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const listDeployData = await listDeployRes.json();
+  const latestDeployId = listDeployData.deployments?.[0]?.uid;
+
+  if (!latestDeployId) return { ok: true, redeployed: false, error: "Tidak ada deployment ditemukan" };
+
+  // Trigger redeploy from latest deployment
   const deployRes = await fetch(`https://api.vercel.com/v13/deployments`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ name: projectId, target: "production", gitSource: { type: "github", ref: "main" } }),
+    body: JSON.stringify({ deploymentId: latestDeployId, name: projectId, target: "production" }),
   });
+  const deployData = await deployRes.json();
 
-  return { ok: true, redeployed: deployRes.ok };
+  return { ok: true, redeployed: deployRes.ok, deployUrl: deployData.url ?? null };
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
