@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { signOut } from "next-auth/react";
 import {
   Globe, Plus, RefreshCw, ExternalLink, Trash2, LogOut,
-  CheckCircle, XCircle, Clock, TrendingUp, Users, BookOpen, Map, MessageSquare,
+  CheckCircle, XCircle, Clock, TrendingUp, Users, BookOpen, Map, MessageSquare, Pencil,
 } from "lucide-react";
 
 interface Client {
@@ -40,6 +40,66 @@ function timeAgo(date: string | null) {
   return "Baru saja";
 }
 
+function EditClientModal({ client, onClose, onSave }: {
+  client: Client;
+  onClose: () => void;
+  onSave: (data: Partial<Client>) => void;
+}) {
+  const [form, setForm] = useState({ name: client.name, url: client.url, notes: client.notes ?? "", status: client.status });
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    await onSave(form);
+    setLoading(false);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-bold mb-5">Edit Client</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nama Client</label>
+            <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">URL Website</label>
+            <input required value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+              placeholder="https://sundaftrip.com"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+              <option value="expired">Expired</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 border border-gray-200 rounded-lg py-2 text-sm font-medium hover:bg-gray-50 transition">Batal</button>
+            <button type="submit" disabled={loading}
+              className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-60">
+              {loading ? "Menyimpan..." : "Simpan"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function ClientCard({ client, onDelete, onUpdate }: {
   client: Client;
   onDelete: (id: string) => void;
@@ -48,6 +108,7 @@ function ClientCard({ client, onDelete, onUpdate }: {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -135,6 +196,11 @@ function ClientCard({ client, onDelete, onUpdate }: {
             {showKey ? "Sembunyikan" : "API Key"}
           </button>
 
+          <button onClick={() => setShowEdit(true)}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition">
+            <Pencil size={13} />
+          </button>
+
           <button onClick={fetchStats} disabled={loading}
             className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
@@ -157,6 +223,14 @@ function ClientCard({ client, onDelete, onUpdate }: {
           <p className="text-xs text-gray-500 mb-1 font-medium">MASTER_API_KEY untuk {client.name}:</p>
           <code className="text-xs text-gray-700 break-all">{client.apiKey}</code>
         </div>
+      )}
+
+      {showEdit && (
+        <EditClientModal
+          client={client}
+          onClose={() => setShowEdit(false)}
+          onSave={data => onUpdate(client.id, data)}
+        />
       )}
     </div>
   );
