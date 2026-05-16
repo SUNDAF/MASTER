@@ -1,59 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { notifyClient } from "@/lib/notify";
 
-async function vercelSetPlan(projectId: string, plan: string) {
-  const token = process.env.VERCEL_TOKEN;
-  if (!token || !projectId) return { ok: false, error: "VERCEL_TOKEN atau Project ID belum diset" };
-
-  const targets = ["production", "preview"];
-
-  // Get existing env vars
-  const listRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const listData = await listRes.json();
-  const existing = listData.envs?.find((e: { key: string }) => e.key === "NEXT_PUBLIC_PLAN");
-
-  if (existing) {
-    // Update existing
-    const updateRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env/${existing.id}`, {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ value: plan, target: targets }),
-    });
-    if (!updateRes.ok) return { ok: false, error: "Gagal update env var" };
-  } else {
-    // Create new
-    const createRes = await fetch(`https://api.vercel.com/v9/projects/${projectId}/env`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "NEXT_PUBLIC_PLAN", value: plan, type: "plain", target: targets }),
-    });
-    if (!createRes.ok) return { ok: false, error: "Gagal buat env var" };
-  }
-
-  // Get latest production deployment ID
-  const listDeployRes = await fetch(
-    `https://api.vercel.com/v6/deployments?projectId=${projectId}&limit=1&target=production`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  const listDeployData = await listDeployRes.json();
-  const latestDeployId = listDeployData.deployments?.[0]?.uid;
-
-  if (!latestDeployId) return { ok: true, redeployed: false, error: "Tidak ada deployment ditemukan" };
-
-  // Trigger redeploy from latest deployment
-  const deployRes = await fetch(`https://api.vercel.com/v13/deployments`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ deploymentId: latestDeployId, name: projectId, target: "production" }),
-  });
-  const deployData = await deployRes.json();
-
-  return { ok: true, redeployed: deployRes.ok, deployUrl: deployData.url ?? null };
-}
-
+/**
+ * Ubah plan pelanggan — instan, tanpa redeploy.
+ *
+ * POST /api/clients/[id]/plan   body: { plan: "basic" | "pro" }
+ *
+ * 1. Update DB MASTER.
+ * 2. Ping webhook deployment pelanggan → CORE me-revalidate cache license.
+ *    Pelanggan langsung melihat perubahan dalam hitungan detik.
+ *    Kalau webhook gagal (deployment down), perubahan tetap tersimpan dan
+ *    CORE akan menariknya sendiri lewat polling 5 menit.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,14 +28,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const client = await prisma.client.findUnique({ where: { id } });
   if (!client) return NextResponse.json({ error: "Client tidak ditemukan" }, { status: 404 });
 
-  // Update DB
   await prisma.client.update({ where: { id }, data: { plan } });
 
-  // Sync to Vercel if projectId exists
-  if (client.vercelProjectId) {
-    const result = await vercelSetPlan(client.vercelProjectId, plan);
-    return NextResponse.json({ success: true, vercel: result });
-  }
+  const webhook = await notifyClient(client.url, client.apiKey);
 
-  return NextResponse.json({ success: true, vercel: null });
+  return NextResponse.json({
+    success: true,
+    plan,
+    webhook, // { ok: true } instan; { ok: false } → pelanggan tetap update via polling
+  });
 }
